@@ -4,12 +4,12 @@ export default function TaskList({ tasks, onToggle, onDelete }) {
   if (tasks.length === 0) {
     return (
       <section className="task-section empty">
-        <p className="empty-msg">// NO TASKS LOGGED YET</p>
+        <p className="empty-msg">NO TASKS LOGGED YET</p>
       </section>
     );
   }
 
-  const pending   = tasks.filter(t => !t.done);
+  const pending = tasks.filter(t => !t.done);
   const completed = tasks.filter(t => t.done);
 
   return (
@@ -24,14 +24,14 @@ export default function TaskList({ tasks, onToggle, onDelete }) {
         ))}
       </ul>
       {completed.length > 0 && (
-        <>
-          <p className="completed-label">// Completed</p>
+        <div>
+          <p className="completed-label">Completed</p>
           <ul className="task-list">
             {completed.map(task => (
               <TaskItem key={task.id} task={task} onToggle={onToggle} onDelete={onDelete} />
             ))}
           </ul>
-        </>
+        </div>
       )}
     </section>
   );
