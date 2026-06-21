@@ -1,9 +1,16 @@
 import React from "react";
 
-export default function Header({ user, onLogout }) {
+export default function Header({ user, onLogout, onMenuClick }) {
   return (
     <header className="header">
       <div className="header-inner">
+        <button className="hamburger" onClick={onMenuClick} aria-label="Menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <div className="logo">
           <div className="logo-icon">◈</div>
           <span className="logo-text">TASKFLOW</span>

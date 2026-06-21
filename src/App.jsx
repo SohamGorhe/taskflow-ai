@@ -5,6 +5,7 @@ import Header from "./components/Header";
 import ChatBubbles from "./components/ChatBubbles";
 import Auth from "./components/Auth";
 import Toast from "./components/Toast";
+import Sidebar from "./components/Sidebar";
 import { supabase, fetchTasks, insertTasks, updateTask, deleteTask } from "./lib/supabase";
 import { requestNotificationPermission, scheduleAllReminders, scheduleReminder, cancelReminder, cancelAllReminders } from "./lib/reminders";
 import { useToast } from "./lib/useToast";
@@ -20,6 +21,8 @@ export default function App() {
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null); // null = today
   const reminderIds = useRef({});
   const { toasts, addToast, removeToast } = useToast();
 
@@ -134,6 +137,23 @@ export default function App() {
     setTasks([]); setChatLog([]); setConversationHistory([]);
   };
 
+  // Tasks for today
+  const today = new Date().toLocaleDateString("en-CA");
+  const todayTasks = tasks.filter(t => {
+    const d = new Date(t.created_at).toLocaleDateString("en-CA");
+    return d === today;
+  });
+
+  // Tasks for selected past date
+  const selectedTasks = selectedDate
+    ? tasks.filter(t => new Date(t.created_at).toLocaleDateString("en-CA") === selectedDate)
+    : [];
+
+  const formatSelectedLabel = (key) => {
+    const date = new Date(key + "T00:00:00");
+    return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  };
+
   if (authLoading) return (
     <div className="app">
       <div className="model-loading">
@@ -147,18 +167,50 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header user={session.user} onLogout={handleLogout} />
-      <main className="main">
-        {notifPermission !== "granted" && notifPermission !== "denied" && (
-          <div className="reminder-banner">
-            <span>⏰ Enable reminders to get notified before your meetings</span>
-            <button className="reminder-btn" onClick={handleEnableReminders}>Enable</button>
-          </div>
-        )}
-        <VoiceInput onTranscript={handleTranscript} isProcessing={isProcessing} aiSpeaking={aiSpeaking} pendingQuestion={pendingQuestion} />
-        <ChatBubbles chatLog={chatLog} isProcessing={isProcessing} />
-        <TaskList tasks={tasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
-      </main>
+      <Header user={session.user} onLogout={handleLogout} onMenuClick={() => setSidebarOpen(true)} />
+
+      <div className="app-body">
+        <Sidebar
+          tasks={tasks}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          onClose={() => setSidebarOpen(false)}
+          isOpen={sidebarOpen}
+        />
+
+        <main className="main">
+          {notifPermission !== "granted" && notifPermission !== "denied" && (
+            <div className="reminder-banner">
+              <span>⏰ Enable reminders to get notified before your meetings</span>
+              <button className="reminder-btn" onClick={handleEnableReminders}>Enable</button>
+            </div>
+          )}
+
+          {selectedDate ? (
+            // ── PAST DATE VIEW ──
+            <div className="past-view">
+              <div className="past-view-header">
+                <button className="back-btn" onClick={() => setSelectedDate(null)}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M19 12H5M12 5l-7 7 7 7"/>
+                  </svg>
+                  Back to Today
+                </button>
+                <h2 className="past-view-title">{formatSelectedLabel(selectedDate)}</h2>
+              </div>
+              <TaskList tasks={selectedTasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+            </div>
+          ) : (
+            // ── TODAY VIEW ──
+            <>
+              <VoiceInput onTranscript={handleTranscript} isProcessing={isProcessing} aiSpeaking={aiSpeaking} pendingQuestion={pendingQuestion} />
+              <ChatBubbles chatLog={chatLog} isProcessing={isProcessing} />
+              <TaskList tasks={todayTasks} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+            </>
+          )}
+        </main>
+      </div>
+
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>
   );
