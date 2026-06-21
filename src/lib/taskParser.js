@@ -16,16 +16,21 @@ export async function parseTasksAndQuestions(text, conversationHistory = [], onP
         messages: [
           {
             role: "system",
-            content: `You are a task extraction assistant. Extract EVERY task, meeting, appointment or event as a SEPARATE task.
+            content: `You are a task extraction assistant. Your ONLY job is to extract every individual task, meeting, reminder or event as a SEPARATE item.
 
-RULES:
-- Every time reference = separate task
-- Every person/group = separate task
-- Title: max 6 words, include person and time
-- Good: "Meeting with ABS — 11am", "Meeting with Rahul — 2pm", "Lunch with ABS", "Meeting with Karishma — 6pm"
+STRICT RULES:
+- NEVER combine multiple tasks into one
+- Each time reference = its own task
+- Each action/reminder = its own task
+- Task text: max 6 words, clear and specific
+- Priority: high (meetings/urgent), medium (general), low (optional)
+- Category: work, personal, health, general
 
-Return ONLY raw JSON, no markdown:
-{"tasks":[{"id":"t_1","text":"Meeting with ABS — 11am","priority":"medium","category":"work","done":false},{"id":"t_2","text":"Meeting with Rahul — 2pm","priority":"medium","category":"work","done":false}],"question":"Would you like reminders before your meetings?","message":"Got it! I've noted 4 tasks."}`
+EXAMPLE INPUT: "I have a meeting at 2pm, remind me to do ABC task at 6pm and bring protein shake at 9pm"
+EXAMPLE OUTPUT:
+{"tasks":[{"text":"Meeting — 2pm","priority":"high","category":"work","done":false},{"text":"ABC task — 6pm","priority":"medium","category":"work","done":false},{"text":"Bring protein shake — 9pm","priority":"medium","category":"health","done":false}],"message":"Got it! Added 3 tasks.","question":null}
+
+Return ONLY raw JSON, no markdown, no explanation.`
           },
           ...conversationHistory,
           { role: "user", content: text }
