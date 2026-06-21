@@ -54,7 +54,7 @@ export default function App() {
       setTasks([]);
       cancelAllReminders(reminderIds.current);
     }
-  }, [session, addToast]);
+  }, [session]);
 
   useEffect(() => {
     if ("Notification" in window) setNotifPermission(Notification.permission);
@@ -176,6 +176,8 @@ export default function App() {
           onSelectDate={setSelectedDate}
           onClose={() => setSidebarOpen(false)}
           isOpen={sidebarOpen}
+          user={session.user}
+          onLogout={handleLogout}
         />
 
         <main className="main">
