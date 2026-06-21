@@ -54,7 +54,7 @@ export default function App() {
       setTasks([]);
       cancelAllReminders(reminderIds.current);
     }
-  }, [session]);
+  }, [session, addToast]);
 
   useEffect(() => {
     if ("Notification" in window) setNotifPermission(Notification.permission);
