@@ -1,4 +1,5 @@
-const GROQ_KEY = "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";
+
+const GROQ_KEY = process.env.REACT_APP_GROQ_KEY;
 
 export async function parseTasksAndQuestions(text, conversationHistory = [], onProgress) {
   console.log("🚀 Calling Groq...", text);
