@@ -1,4 +1,4 @@
-const GROQ_KEY = "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";
+const GROQ_KEY = "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";
 
 export async function parseTasksAndQuestions(text, conversationHistory = [], onProgress) {
   console.log("🚀 Calling Groq...", text);
