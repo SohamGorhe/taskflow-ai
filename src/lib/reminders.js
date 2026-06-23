@@ -1,4 +1,4 @@
-// reminders.js — Smart reminders for tasks with and without times
+// reminders.js — Smart reminders with alarm beeps
 
 export async function requestNotificationPermission() {
   if (!("Notification" in window)) return false;
@@ -8,7 +8,38 @@ export async function requestNotificationPermission() {
   return permission === "granted";
 }
 
-// Parse time from task text like "Meeting with Rahul — 2pm"
+// Play 4 short beeps using Web Audio API
+function playAlarmBeeps() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const beepCount = 4;
+    const beepDuration = 0.18; // seconds
+    const beepGap = 0.12;      // seconds between beeps
+
+    for (let i = 0; i < beepCount; i++) {
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880; // A5 — sharp, attention-grabbing
+
+      const start = ctx.currentTime + i * (beepDuration + beepGap);
+      const end = start + beepDuration;
+
+      gainNode.gain.setValueAtTime(0, start);
+      gainNode.gain.linearRampToValueAtTime(0.8, start + 0.01);
+      gainNode.gain.linearRampToValueAtTime(0, end);
+
+      oscillator.start(start);
+      oscillator.stop(end);
+    }
+  } catch (e) {
+    console.warn("Audio playback failed:", e);
+  }
+}
+
 function parseTaskTime(text) {
   const timeRegex = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.|o'clock)?\b/i;
   const match = text.match(timeRegex);
@@ -25,7 +56,6 @@ function parseTaskTime(text) {
   const now = new Date();
   const taskTime = new Date(now);
   taskTime.setHours(hours, minutes, 0, 0);
-
   return taskTime;
 }
 
@@ -40,7 +70,11 @@ function sendNotification(title, body, tag) {
   notification.onclick = () => { window.focus(); notification.close(); };
 }
 
-// Schedule reminder for task WITH a specific time — 15 min before
+function fireAlarm(title, body, tag) {
+  playAlarmBeeps();
+  sendNotification(title, body, tag);
+}
+
 function scheduleTimedReminder(task) {
   const taskTime = parseTaskTime(task.text);
   if (!taskTime) return [];
@@ -48,72 +82,75 @@ function scheduleTimedReminder(task) {
   const now = new Date();
   const reminderTime = new Date(taskTime.getTime() - 15 * 60 * 1000);
   const msUntilReminder = reminderTime.getTime() - now.getTime();
-
   if (msUntilReminder <= 0) return [];
 
-  const id = setTimeout(() => {
-    sendNotification(
-      "⏰ Starting in 15 minutes",
-      task.text,
-      `timed_${task.id}`
-    );
+  const ids = [];
+
+  // First alarm
+  const id1 = setTimeout(() => {
+    fireAlarm("⏰ Starting in 15 minutes", task.text, `timed_${task.id}`);
+
+    // Repeat once after 5 minutes if not dismissed
+    const id2 = setTimeout(() => {
+      fireAlarm("⏰ Reminder again — Starting soon!", task.text, `timed_repeat_${task.id}`);
+    }, 5 * 60 * 1000);
+    ids.push(id2);
   }, msUntilReminder);
 
+  ids.push(id1);
   console.log(`⏰ Timed reminder for "${task.text}" in ${Math.round(msUntilReminder / 60000)} min`);
-  return [id];
+  return ids;
 }
 
-// Schedule daily reminders at 1pm and 8pm for tasks WITHOUT a time
 function scheduleDailyReminders(task) {
   const now = new Date();
   const ids = [];
 
   const reminderTimes = [
-    { hour: 13, minute: 0, label: "afternoon" },  // 1pm
-    { hour: 20, minute: 0, label: "evening" },    // 8pm
+    { hour: 13, minute: 0, label: "afternoon" },
+    { hour: 20, minute: 0, label: "evening" },
   ];
 
   reminderTimes.forEach(({ hour, minute, label }) => {
     const reminderTime = new Date(now);
     reminderTime.setHours(hour, minute, 0, 0);
-
     let msUntil = reminderTime.getTime() - now.getTime();
-
-    // If time already passed today, schedule for tomorrow
     if (msUntil <= 0) {
       reminderTime.setDate(reminderTime.getDate() + 1);
       msUntil = reminderTime.getTime() - now.getTime();
     }
 
-    const id = setTimeout(() => {
-      sendNotification(
+    const id1 = setTimeout(() => {
+      fireAlarm(
         `📋 ${label === "afternoon" ? "Afternoon" : "Evening"} Task Reminder`,
         task.text,
         `daily_${label}_${task.id}`
       );
+
+      // Repeat once after 5 minutes
+      const id2 = setTimeout(() => {
+        fireAlarm(
+          `📋 Don't forget — ${label === "afternoon" ? "Afternoon" : "Evening"} Reminder`,
+          task.text,
+          `daily_${label}_repeat_${task.id}`
+        );
+      }, 5 * 60 * 1000);
+      ids.push(id2);
     }, msUntil);
 
+    ids.push(id1);
     console.log(`📋 Daily ${label} reminder for "${task.text}" in ${Math.round(msUntil / 60000)} min`);
-    ids.push(id);
   });
 
   return ids;
 }
 
-// Main function — decides which reminder type to use
 export function scheduleReminder(task) {
   if (!task.text || task.done) return [];
-
   const hasTime = parseTaskTime(task.text) !== null;
-
-  if (hasTime) {
-    return scheduleTimedReminder(task);
-  } else {
-    return scheduleDailyReminders(task);
-  }
+  return hasTime ? scheduleTimedReminder(task) : scheduleDailyReminders(task);
 }
 
-// Schedule reminders for all tasks
 export function scheduleAllReminders(tasks) {
   const reminderIds = {};
   tasks.forEach(task => {
@@ -125,7 +162,6 @@ export function scheduleAllReminders(tasks) {
   return reminderIds;
 }
 
-// Cancel reminders for a specific task
 export function cancelReminder(taskId, reminderIds) {
   if (reminderIds[taskId]) {
     reminderIds[taskId].forEach(id => clearTimeout(id));
@@ -133,9 +169,6 @@ export function cancelReminder(taskId, reminderIds) {
   }
 }
 
-// Cancel all reminders
 export function cancelAllReminders(reminderIds) {
-  Object.values(reminderIds).forEach(ids =>
-    ids.forEach(id => clearTimeout(id))
-  );
+  Object.values(reminderIds).forEach(ids => ids.forEach(id => clearTimeout(id)));
 }
