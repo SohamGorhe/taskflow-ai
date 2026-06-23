@@ -1,12 +1,30 @@
 import React, { useState, useRef, useEffect } from "react";
 
+const GROQ_KEY = process.env.REACT_APP_GROQ_KEY;
+const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+async function transcribeWithWhisper(audioBlob) {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "audio.webm");
+  formData.append("model", "whisper-large-v3");
+  formData.append("language", "en");
+  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${GROQ_KEY}` },
+    body: formData,
+  });
+  const data = await res.json();
+  return data.text || "";
+}
+
 export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pendingQuestion }) {
   const [isListening, setIsListening] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [typedText, setTypedText] = useState("");
-  const [inputMode, setInputMode] = useState("voice"); // "voice" | "text"
+  const [inputMode, setInputMode] = useState("voice");
   const [bars, setBars] = useState(Array(20).fill(3));
   const [aiBars, setAiBars] = useState(Array(20).fill(3));
+  const [transcribing, setTranscribing] = useState(false);
   const recognitionRef = useRef(null);
   const fullTranscriptRef = useRef("");
   const animFrameRef = useRef(null);
@@ -14,8 +32,9 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
   const micStreamRef = useRef(null);
   const aiWaveRef = useRef(null);
   const textareaRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
-  // AI speaking waveform
   useEffect(() => {
     if (aiSpeaking) {
       let t = 0;
@@ -34,10 +53,10 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
     return () => cancelAnimationFrame(aiWaveRef.current);
   }, [aiSpeaking]);
 
-  const startWaveform = async () => {
+  const startWaveform = async (existingStream) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
+      const stream = existingStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!existingStream) micStreamRef.current = stream;
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
@@ -69,9 +88,47 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
     micStreamRef.current = null;
   };
 
-  const startListening = () => {
+  // ── MOBILE: MediaRecorder + Whisper ──────────────────────────────────────────
+  const startListeningMobile = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      audioChunksRef.current = [];
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.start(100);
+      setIsListening(true);
+      startWaveform(stream);
+    } catch (err) {
+      console.error("Mic error:", err);
+    }
+  };
+
+  const stopListeningMobile = async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    recorder.stop();
+    setIsListening(false);
+    stopWaveform();
+    setTranscribing(true);
+    await new Promise(resolve => { recorder.onstop = resolve; });
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+    const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+    try {
+      const text = await transcribeWithWhisper(audioBlob);
+      if (text.trim()) await onTranscript(text.trim());
+    } catch (err) {
+      console.error("Whisper error:", err);
+    }
+    setTranscribing(false);
+  };
+
+  // ── DESKTOP: Web Speech API ───────────────────────────────────────────────────
+  const startListeningDesktop = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) return startListeningMobile(); // fallback
     fullTranscriptRef.current = "";
     setLiveText("");
     const recognition = new SR();
@@ -92,15 +149,13 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
       if (e.error === "no-speech") return;
       setIsListening(false); stopWaveform();
     };
-    recognition.onend = () => {
-      if (recognition._shouldKeepGoing) recognition.start();
-    };
+    recognition.onend = () => { if (recognition._shouldKeepGoing) recognition.start(); };
     recognition._shouldKeepGoing = true;
     recognitionRef.current = recognition;
     recognition.start();
   };
 
-  const stopListening = async () => {
+  const stopListeningDesktop = async () => {
     if (!recognitionRef.current) return;
     recognitionRef.current._shouldKeepGoing = false;
     recognitionRef.current.stop();
@@ -112,6 +167,9 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
     if (text) await onTranscript(text);
   };
 
+  const startListening = () => isMobile() ? startListeningMobile() : startListeningDesktop();
+  const stopListening  = () => isMobile() ? stopListeningMobile()  : stopListeningDesktop();
+
   const handleTextSubmit = async () => {
     const text = typedText.trim();
     if (!text || isProcessing) return;
@@ -120,49 +178,36 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleTextSubmit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleTextSubmit(); }
   };
 
   useEffect(() => () => { stopWaveform(); cancelAnimationFrame(animFrameRef.current); }, []);
 
-  const state = aiSpeaking ? "ai-speaking" : isProcessing ? "processing" : isListening ? "listening" : "idle";
+  const isTranscribing = transcribing;
+  const state = aiSpeaking ? "ai-speaking" : (isProcessing || isTranscribing) ? "processing" : isListening ? "listening" : "idle";
 
   const statusMessages = {
     idle: pendingQuestion ? "Tap mic to answer or type below" : "Speak your tasks or type them below",
-    listening: "Listening... tap stop when done",
-    processing: "Thinking...",
+    listening: isMobile() ? "Recording... tap stop when done" : "Listening... tap stop when done",
+    processing: isTranscribing ? "Transcribing..." : "Thinking...",
     "ai-speaking": "Speaking...",
   };
 
   return (
     <section className="voice-section">
-
-      {/* AI waveform */}
       <div className={`waveform ai-wave ${aiSpeaking ? "active" : ""}`}>
-        {aiBars.map((h, i) => (
-          <span key={i} className="bar ai-bar" style={{ height: `${h}px` }} />
-        ))}
+        {aiBars.map((h, i) => <span key={i} className="bar ai-bar" style={{ height: `${h}px` }} />)}
       </div>
 
-      {/* Mode toggle */}
       <div className="input-mode-toggle">
-        <button
-          className={`mode-btn ${inputMode === "voice" ? "active" : ""}`}
-          onClick={() => setInputMode("voice")}
-        >
+        <button className={`mode-btn ${inputMode === "voice" ? "active" : ""}`} onClick={() => setInputMode("voice")}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z"/>
             <path d="M19 10a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V21H9v2h6v-2h-2v-2.06A9 9 0 0 0 21 10z"/>
           </svg>
           Voice
         </button>
-        <button
-          className={`mode-btn ${inputMode === "text" ? "active" : ""}`}
-          onClick={() => { setInputMode("text"); setTimeout(() => textareaRef.current?.focus(), 100); }}
-        >
+        <button className={`mode-btn ${inputMode === "text" ? "active" : ""}`} onClick={() => { setInputMode("text"); setTimeout(() => textareaRef.current?.focus(), 100); }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
           </svg>
@@ -170,20 +215,17 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
         </button>
       </div>
 
-      {/* VOICE MODE */}
       {inputMode === "voice" && (
         <>
           <button
             className={`mic-btn state-${state}`}
             onClick={isListening ? stopListening : startListening}
-            disabled={isProcessing || aiSpeaking}
+            disabled={isProcessing || aiSpeaking || isTranscribing}
             aria-label={isListening ? "Stop" : "Start"}
           >
             {isListening ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="5" y="5" width="14" height="14" rx="2"/>
-              </svg>
-            ) : isProcessing ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            ) : (isProcessing || isTranscribing) ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
               </svg>
@@ -199,11 +241,8 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
             )}
           </button>
 
-          {/* User waveform */}
           <div className={`waveform user-wave ${isListening ? "active" : ""}`}>
-            {bars.map((h, i) => (
-              <span key={i} className="bar" style={{ height: `${h}px` }} />
-            ))}
+            {bars.map((h, i) => <span key={i} className="bar" style={{ height: `${h}px` }} />)}
           </div>
 
           <p className="status-msg">{statusMessages[state]}</p>
@@ -217,13 +256,12 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
         </>
       )}
 
-      {/* TEXT MODE */}
       {inputMode === "text" && (
         <div className="text-input-wrap">
           <textarea
             ref={textareaRef}
             className="text-input"
-            placeholder={pendingQuestion ? "Type your answer..." : "Type your tasks here... (e.g. Meeting with Rahul at 2pm, lunch at 1pm)"}
+            placeholder={pendingQuestion ? "Type your answer..." : "Type your tasks here..."}
             value={typedText}
             onChange={e => setTypedText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -250,7 +288,6 @@ export default function VoiceInput({ onTranscript, isProcessing, aiSpeaking, pen
           </div>
         </div>
       )}
-
     </section>
   );
 }
