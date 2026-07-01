@@ -1276,41 +1276,6 @@ body {
 
 .toast-icon { font-size: 14px; font-weight: 700; }
 
-/* ── PARTICLE SPHERE ─────────────────────────────────────────────────────────── */
-.sphere-btn {
-  display: block;
-  margin: 0 auto;
-  transition: transform 0.2s ease, filter 0.3s ease;
-  border-radius: 50%;
-}
-
-.sphere-btn:hover:not(:disabled) {
-  transform: scale(1.04);
-}
-
-.sphere-btn.state-listening {
-  filter: drop-shadow(0 0 18px rgba(210,220,245,0.5));
-}
-
-.sphere-btn.state-ai-speaking {
-  filter: drop-shadow(0 0 20px rgba(255,150,40,0.5));
-  animation: sphere-pulse 2s ease-in-out infinite;
-}
-
-.sphere-btn.state-processing {
-  filter: drop-shadow(0 0 10px rgba(150,160,200,0.3));
-  animation: sphere-spin 3s linear infinite;
-}
-
-@keyframes sphere-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-}
-
-@keyframes sphere-spin {
-  from { filter: drop-shadow(0 0 10px rgba(150,160,200,0.3)) hue-rotate(0deg); }
-  to { filter: drop-shadow(0 0 10px rgba(150,160,200,0.3)) hue-rotate(360deg); }
-}
-
-/* Remove old mic-btn styles interference */
-.voice-section .mic-btn { display: none; }
+/* Hide old waveform bars — replaced by sphere */
+.ai-wave, .user-wave { display: none !important; }
+.voice-section { min-height: 320px; }
