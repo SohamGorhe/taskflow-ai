@@ -11,7 +11,7 @@ export async function parseTasksAndQuestions(text, conversationHistory = [], onP
         "Authorization": `Bearer ${GROQ_KEY}`,
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "llama3-70b-8192",
         max_tokens: 800,
         temperature: 0.1,
         messages: [
