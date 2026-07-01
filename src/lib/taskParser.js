@@ -1,4 +1,3 @@
-
 const GROQ_KEY = process.env.REACT_APP_GROQ_KEY;
 
 export async function parseTasksAndQuestions(text, conversationHistory = [], onProgress) {
@@ -11,27 +10,50 @@ export async function parseTasksAndQuestions(text, conversationHistory = [], onP
         "Authorization": `Bearer ${GROQ_KEY}`,
       },
       body: JSON.stringify({
-        model: "llama3-70b-8192",
-        max_tokens: 800,
-        temperature: 0.1,
+        model: "openai/gpt-oss-20b",
+        max_tokens: 1000,
+        temperature: 0,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "task_extraction",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                tasks: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      text: { type: "string" },
+                      priority: { type: "string", enum: ["high", "medium", "low"] },
+                      category: { type: "string", enum: ["work", "personal", "health", "general"] },
+                      done: { type: "boolean" }
+                    },
+                    required: ["text", "priority", "category", "done"],
+                    additionalProperties: false
+                  }
+                },
+                message: { type: "string" },
+                question: { type: ["string", "null"] }
+              },
+              required: ["tasks", "message", "question"],
+              additionalProperties: false
+            }
+          }
+        },
         messages: [
           {
             role: "system",
-            content: `You are a task extraction assistant. Your ONLY job is to extract every individual task, meeting, reminder or event as a SEPARATE item.
+            content: `You are a task extraction assistant. Extract EVERY task, meeting, reminder or event as a SEPARATE item in the tasks array.
 
-STRICT RULES:
-- NEVER combine multiple tasks into one
-- Each time reference = its own task
-- Each action/reminder = its own task
-- Task text: max 6 words, clear and specific
-- Priority: high (meetings/urgent), medium (general), low (optional)
-- Category: work, personal, health, general
-
-EXAMPLE INPUT: "I have a meeting at 2pm, remind me to do ABC task at 6pm and bring protein shake at 9pm"
-EXAMPLE OUTPUT:
-{"tasks":[{"text":"Meeting — 2pm","priority":"high","category":"work","done":false},{"text":"ABC task — 6pm","priority":"medium","category":"work","done":false},{"text":"Bring protein shake — 9pm","priority":"medium","category":"health","done":false}],"message":"Got it! Added 3 tasks.","question":null}
-
-Return ONLY raw JSON, no markdown, no explanation.`
+RULES:
+- Each time mentioned = one separate task
+- Each action = one separate task  
+- Task text: max 6 words, include time if mentioned
+- Priority: high for meetings/urgent, medium for general, low for optional
+- Category: work, personal, health, or general`
           },
           ...conversationHistory,
           { role: "user", content: text }
@@ -45,8 +67,7 @@ Return ONLY raw JSON, no markdown, no explanation.`
     if (data.error) throw new Error(data.error.message);
 
     const raw = data.choices?.[0]?.message?.content || "{}";
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
+    const parsed = JSON.parse(raw);
 
     return {
       tasks: (parsed.tasks || []).map((task, i) => ({
